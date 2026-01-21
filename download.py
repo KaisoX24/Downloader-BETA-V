@@ -59,9 +59,6 @@ def download_youtube_video(url, file_type, output_path="downloads"):
         st.error(f"An error occurred: {str(e)}")
         return None
 
-import ffmpeg
-import os
-
 def convert_mp4_to_mp3(input_file):
     """
     Convert a video (.mp4) to mp3 audio using ffmpeg-python.
