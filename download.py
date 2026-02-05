@@ -2,27 +2,63 @@ import yt_dlp
 import os
 import streamlit as st
 import ffmpeg
+import time
 
-def download_youtube_video(url, file_type, output_path="downloads"):
+def progress_hook(d, progress_bar, status_text, state):
+    now = time.time()
+
+    if now - state["last_update"] < 0.3:
+        return  
+
+    state["last_update"] = now
+
+    if d["status"] == "downloading":
+        downloaded = d.get("downloaded_bytes", 0)
+        total = d.get("total_bytes") or d.get("total_bytes_estimate")
+
+        if total:
+            percent = downloaded / total
+            progress_bar.progress(min(percent, 1.0))
+            percent_text = f"{percent*100:.1f}%"
+        else:
+            percent_text = "Calculating..."
+
+        speed = d.get("speed") or 0
+        eta = d.get("eta")
+
+        status_text.text(
+            f"{percent_text} | "
+            f"{downloaded/1e6:.1f} MB | "
+            f"{speed/1e6:.1f} MB/s | "
+            f"ETA: {eta if eta else 'N/A'}"
+        )
+
+def download_youtube_video(url,selected_res='Best', file_type='mp4', output_path="downloads"):
     if not os.path.exists(output_path):
         os.makedirs(output_path)
-
     final_filepath = None
+
+    Format_maps={
+        'Best':'bestvideo+bestaudio/best',
+        '480P':'bestvideo[height<=480]+bestaudio/best',
+        '720P':'bestvideo[height<=720]+bestaudio/best',
+        '1080P':'bestvideo[height<=1080]+bestaudio/best'
+    }
 
     # ---- base options ----
     ydl_opts = {
         'outtmpl': f'{output_path}/%(title)s.%(ext)s',
         'noplaylist': True,
-        'writedescription': False,
         'verbose': True,
         'quiet': False,
         'noprogress': False,
     }
 
+    
     # ---- pipeline switch ----
     if file_type == "mp4":
         ydl_opts.update({
-            'format': 'bestvideo+bestaudio/best',
+            'format': Format_maps[selected_res],
             'merge_output_format': 'mp4',
         })
 
@@ -37,8 +73,14 @@ def download_youtube_video(url, file_type, output_path="downloads"):
         })
 
     try:
-        st.info(f"Currently given URL: {url}")
-        with st.spinner('Downloading...'):
+        with st.spinner("Downloading..."):
+            st.info(f"Currently given URL: {url}")
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            state = {"last_update": 0}
+            ydl_opts["progress_hooks"] = [
+            lambda d: progress_hook(d, progress_bar, status_text,state)
+                ]
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info_dict = ydl.extract_info(url, download=True)
 
@@ -49,8 +91,8 @@ def download_youtube_video(url, file_type, output_path="downloads"):
                 else:
                     final_filepath = base_filename
 
-        st.success("Download complete on the server.")
-        return final_filepath
+            st.toast("Download is Complete On the server",icon='✅',duration='short')
+            return final_filepath
 
     except yt_dlp.utils.DownloadError as de:
         st.error(f"Download error: {str(de)}")
