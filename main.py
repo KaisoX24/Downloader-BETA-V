@@ -14,22 +14,29 @@ if "mime_type" not in st.session_state:
 
 if choice == 'Youtube Files':
     video_url = st.sidebar.text_input("Enter the YouTube video URL:", "")
-
+    vid_res=None
     output_format = None
     if video_url:
         output_format = st.sidebar.radio("Mp4 or Mp3?", ['mp4', 'mp3'])
+        if output_format=='mp4':
+            vid_res=st.sidebar.selectbox("Select Resolution:",['Best','480P','720P','1080P'])
 
-    button = st.sidebar.button("Start Download")
-
-    if video_url and output_format and button:
+    button = None
+    if video_url and output_format:
         if output_format == 'mp4':
             st.session_state.mime_type = "video/mp4"
         else:
             st.session_state.mime_type = "audio/mpeg"
 
-        st.session_state.downloaded_file_path = download_youtube_video(
-            video_url, output_format
-        )
+        button = st.sidebar.button("Start Download")
+
+        if button:
+            st.session_state.downloaded_file_path = download_youtube_video(
+                video_url,
+                vid_res if vid_res else "Best",
+                output_format
+            )
+
 elif choice == 'Video Files':
     uploaded_file = st.sidebar.file_uploader("Upload Your video file:",type=['mp4', 'mkv'])
     st.session_state.mime_type = "audio/mpeg"
@@ -67,4 +74,3 @@ if (
         file_name=file_name,
         mime=st.session_state.mime_type
     )
-
