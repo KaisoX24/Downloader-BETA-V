@@ -33,7 +33,7 @@ def progress_hook(d, progress_bar, status_text, state):
             f"ETA: {eta if eta else 'N/A'}"
         )
 
-def download_youtube_video(url,selected_res='Best',audio_quality='192k', file_type='mp4', output_path="downloads"):
+def download_youtube_video(urls,selected_res='Best',audio_quality='192k', file_type='mp4', output_path="downloads"):
     if not os.path.exists(output_path):
         os.makedirs(output_path)
     final_filepath = None
@@ -80,25 +80,26 @@ def download_youtube_video(url,selected_res='Best',audio_quality='192k', file_ty
 
     try:
         with st.spinner("Downloading..."):
-            st.info(f"Currently given URL: {url}")
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            state = {"last_update": 0}
-            ydl_opts["progress_hooks"] = [
-            lambda d: progress_hook(d, progress_bar, status_text,state)
-                ]
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info_dict = ydl.extract_info(url, download=True)
+            for url in urls:
+                st.info(f"Currently given URL: {url}")
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                state = {"last_update": 0}
+                ydl_opts["progress_hooks"] = [
+                lambda d: progress_hook(d, progress_bar, status_text,state)
+                    ]
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info_dict = ydl.extract_info(url, download=True)
 
-                base_filename = ydl.prepare_filename(info_dict)
+                    base_filename = ydl.prepare_filename(info_dict)
 
-                if file_type == "mp3":
-                    final_filepath = os.path.splitext(base_filename)[0] + ".mp3"
-                else:
-                    final_filepath = base_filename
+                    if file_type == "mp3":
+                        final_filepath = os.path.splitext(base_filename)[0] + ".mp3"
+                    else:
+                        final_filepath = base_filename
 
-            st.toast("Download is Complete On the server",icon='✅',duration='short')
-            return final_filepath
+                st.toast("Download is Complete On the server",icon='✅',duration='short')
+                return final_filepath
 
     except yt_dlp.utils.DownloadError as de:
         st.error(f"Download error: {str(de)}")
