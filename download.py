@@ -7,7 +7,7 @@ import time
 def progress_hook(d, progress_bar, status_text, state):
     now = time.time()
 
-    if now - state["last_update"] < 0.3:
+    if now - state["last_update"] < 0.2:
         return  
 
     state["last_update"] = now
@@ -33,7 +33,7 @@ def progress_hook(d, progress_bar, status_text, state):
             f"ETA: {eta if eta else 'N/A'}"
         )
 
-def download_youtube_video(urls,selected_res='Best',audio_quality='192k', file_type='mp4', output_path="downloads"):
+def download_youtube_video(url,selected_res='Best',audio_quality='192k', file_type='mp4', output_path="downloads"):
     if not os.path.exists(output_path):
         os.makedirs(output_path)
     final_filepath = None
@@ -80,7 +80,6 @@ def download_youtube_video(urls,selected_res='Best',audio_quality='192k', file_t
 
     try:
         with st.spinner("Downloading..."):
-            for url in urls:
                 st.info(f"Currently given URL: {url}")
                 progress_bar = st.progress(0)
                 status_text = st.empty()
