@@ -46,8 +46,8 @@ if "zip_buffer" not in st.session_state:
 
 
 if choice == 'Youtube Files':
-    video_url = st.sidebar.text_area("Enter the YouTube video URL (one per line):", "")
-    url_jobs=[url.strip() for url in video_url.split('\n') if url.strip()]
+    video_url = st.sidebar.text_area("Enter the YouTube video URL (one per line):","")
+    url_jobs=[perurl.strip() for perurl in video_url.split('\n') if perurl.strip()]
     vid_res=None
     aud_quality=None
     
@@ -83,7 +83,7 @@ if choice == 'Youtube Files':
                     if path:
                         st.session_state.batch_files.append(path)
                 except Exception as e:
-                    st.warning(f"Failed for {url}")
+                    st.warning(f"Failed for {e}")
 
 
 elif choice == 'Video Files':
