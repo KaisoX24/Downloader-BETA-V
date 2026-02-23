@@ -53,11 +53,10 @@ def download_youtube_video(url,selected_res='Best',audio_quality='192k', file_ty
 
     # ---- base options ----
     ydl_opts = {
-        'outtmpl': f'{output_path}/%(title)s.%(ext)s',
+        'outtmpl': f'{output_path}/%(title).200s_%(id)s.%(ext)s',
+        'restrictfilenames': True,
         'noplaylist': True,
         'verbose': True,
-        'quiet': False,
-        'noprogress': False,
     }
 
     
