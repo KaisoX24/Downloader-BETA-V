@@ -5,13 +5,14 @@ import zipfile
 import io
 
 def download_one_file(batch_file,mime_type):
-    with open(batch_file,'rb')as f:
-        data=f.read()
-        file_name=os.path.basename(batch_file)
+    if st.session_state.single_file_buffer is None:
+        with open(batch_file,'rb')as f:
+            st.session_state.single_file_buffer=f.read()
+            st.session_state.single_file_name=os.path.basename(batch_file)
     st.download_button(
         label="Download File",
-        data=data,
-        file_name=file_name,
+        data=st.session_state.single_file_buffer,
+        file_name=st.session_state.single_file_name,
         mime=mime_type
     )
 
@@ -34,6 +35,12 @@ choice = st.sidebar.selectbox("Options:", ['Youtube Files', 'Video Files'])
 # ---- session state init ----
 if "downloaded_file_path" not in st.session_state:
     st.session_state.downloaded_file_path = None
+
+if "single_file_buffer" not in st.session_state:
+    st.session_state.single_file_buffer = None
+
+if 'single_file_name' not in st.session_state:
+    st.session_state.single_file_name = None
 
 if "mime_type" not in st.session_state:
     st.session_state.mime_type = None
@@ -67,11 +74,14 @@ if choice == 'Youtube Files':
         else:
             st.session_state.mime_type = "audio/mpeg"
 
-        button = st.sidebar.button("Start Download")
+        button = st.sidebar.button("Start Download",type='primary')
 
         if button:
+            st.session_state.single_file_buffer = None
+            st.session_state.single_file_name = None
             st.session_state.batch_files = []
             st.session_state.zip_buffer=None
+
             for url in url_jobs:
                 try:
                     path = download_youtube_video(
@@ -108,6 +118,8 @@ elif choice == 'Video Files':
 # ---- render download ----
 if len(st.session_state.batch_files)==1:
     download_one_file(st.session_state.batch_files[0],st.session_state.mime_type)
+    os.remove(st.session_state.batch_files[0])
+    st.session_state.batch_files = []
     
 elif len(st.session_state.batch_files)>1:
     if st.session_state.zip_buffer is None:
