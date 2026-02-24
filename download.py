@@ -4,6 +4,16 @@ import streamlit as st
 import ffmpeg
 import time
 
+def meta_info(url):
+    meta_opts={
+        'skip_download':True,
+        'quiet':True,
+    }
+    with yt_dlp.YoutubeDL(meta_opts) as mydl:
+        info_dict = mydl.extract_info(url, download=False)
+        return info_dict     
+    
+
 def progress_hook(d, progress_bar, status_text, state):
     now = time.time()
 
@@ -58,6 +68,7 @@ def download_youtube_video(url,selected_res='Best',audio_quality='192k', file_ty
         'noplaylist': True,
         'verbose': True,
     }
+    
 
     
     # ---- pipeline switch ----
@@ -79,25 +90,24 @@ def download_youtube_video(url,selected_res='Best',audio_quality='192k', file_ty
 
     try:
         with st.spinner("Downloading..."):
-                st.info(f"Currently given URL: {url}")
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                state = {"last_update": 0}
-                ydl_opts["progress_hooks"] = [
-                lambda d: progress_hook(d, progress_bar, status_text,state)
-                    ]
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info_dict = ydl.extract_info(url, download=True)
+            
 
-                    base_filename = ydl.prepare_filename(info_dict)
-
-                    if file_type == "mp3":
-                        final_filepath = os.path.splitext(base_filename)[0] + ".mp3"
-                    else:
-                        final_filepath = base_filename
-
-                st.toast("Download is Complete On the server",icon='✅',duration='short')
-                return final_filepath
+            st.info(f"Currently given URL: {url}")
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            state = {"last_update": 0}
+            ydl_opts["progress_hooks"] = [
+            lambda d: progress_hook(d, progress_bar, status_text,state)
+                        ]
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info_dict = ydl.extract_info(url, download=True)
+                base_filename = ydl.prepare_filename(info_dict)
+                if file_type == "mp3":
+                    final_filepath = os.path.splitext(base_filename)[0] + ".mp3"
+                else:
+                    final_filepath = base_filename
+            st.toast("Download is Complete On the server",icon='✅',duration='short')
+            return final_filepath
 
     except yt_dlp.utils.DownloadError as de:
         st.error(f"Download error: {str(de)}")
