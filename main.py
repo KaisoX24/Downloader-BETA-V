@@ -1,5 +1,5 @@
 import streamlit as st
-from download import download_youtube_video,convert_mp4_to_mp3
+from download import download_youtube_video,convert_mp4_to_mp3,meta_info
 import os
 import zipfile
 import io
@@ -10,10 +10,11 @@ def download_one_file(batch_file,mime_type):
             st.session_state.single_file_buffer=f.read()
             st.session_state.single_file_name=os.path.basename(batch_file)
     st.download_button(
-        label="Download File",
+        label=":green[Download File]",
         data=st.session_state.single_file_buffer,
         file_name=st.session_state.single_file_name,
-        mime=mime_type
+        mime=mime_type,
+        
     )
 
 def create_zip_buffer(batch_files):
@@ -29,10 +30,16 @@ def create_zip_buffer(batch_files):
     return zip_buffer
 
 st.title(":green[📹 Download BETA V]")
-
+col1,col2=st.columns(2)
 choice = st.sidebar.selectbox("Options:", ['Youtube Files', 'Video Files'])
 
 # ---- session state init ----
+if "vid_thumb" not in st.session_state:
+    st.session_state.vid_thumb=None
+
+if 'vid_title' not in st.session_state:
+    st.session_state.vid_title=None
+
 if "downloaded_file_path" not in st.session_state:
     st.session_state.downloaded_file_path = None
 
@@ -84,14 +91,21 @@ if choice == 'Youtube Files':
 
             for url in url_jobs:
                 try:
-                    path = download_youtube_video(
-                        url=url,
-                        selected_res=vid_res or 'Best',
-                        audio_quality=aud_quality or '192k',
-                        file_type=output_format
-                    )
-                    if path:
-                        st.session_state.batch_files.append(path)
+                    with col1:
+                        meta_data=meta_info(url)
+                        st.session_state.vid_thumb=meta_data.get('thumbnail')
+                        st.session_state.vid_title=meta_data.get('title')
+                        st.image(st.session_state.vid_thumb,caption=st.session_state.vid_title,width=300)
+                    with col2:
+                        path = download_youtube_video(
+                            url=url,
+                            selected_res=vid_res or 'Best',
+                            audio_quality=aud_quality or '192k',
+                            file_type=output_format
+                        )
+                        st.write('---')
+                        if path:
+                            st.session_state.batch_files.append(path)
                 except Exception as e:
                     st.warning(f"Failed for {e}")
 
