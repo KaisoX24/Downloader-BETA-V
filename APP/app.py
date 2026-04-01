@@ -10,6 +10,9 @@ import threading
 import shutil
 import time
 import sys
+import logging
+from typing import Optional, List, Tuple
+from urllib.parse import urlparse
 
 def resource_path(relative_path):
     try:
@@ -23,21 +26,34 @@ def resource_path(relative_path):
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 
 def option_selected(value):
-    if value == "Youtube Files":
+    if value == "Download Video/Reels/Shorts":
+        forget_all()
         label_url.place(x=15, y=140)
         video_url.place(x=15, y=170)
     else:
+        forget_all()
         label_url.place_forget()
         video_url.place_forget()
         upload_label.place(x=15, y=140)
         save_entry2.place(x=15, y=170)
         upload_browse.place(x=15, y=210)
 
+
+def is_valid_url_structure(url_string):
+    try:
+        result = urlparse(url_string.strip())
+        return all([result.scheme in ['http','https'], result.netloc])
+    except (AttributeError, ValueError):
+        return False
+
 def check_url_content(event=None):
     urls = video_url.get("1.0", "end-1c").strip()
-    url_jobs = [u.strip() for u in urls.split("\n") if u.strip()]
+    url_jobs = [u.strip() for u in urls.split("\n") if u.strip() and is_valid_url_structure(u)]
     if url_jobs:  
         mp4rad1.place(x=15, y=280)
         mp3rad2.place(x=15, y=310)
@@ -56,6 +72,13 @@ def forget_all():
     browse_button.place_forget()
     res_label.place_forget()
     vid_res.place_forget()
+    upload_label.place_forget()
+    save_entry2.place_forget()
+    upload_browse.place_forget()
+    mp4rad1.place_forget()
+    mp3rad2.place_forget()
+    button_1.place_forget()
+    button_2.place_forget()
 
 def save_location_place_YT(event=None):
     save_label.place(x=15, y=420)
@@ -75,10 +98,14 @@ def save_location_place():
 def format_selection():
     if output_format.get() == "MP4":
         forget_all()
+        mp4rad1.place(x=15, y=280)
+        mp3rad2.place(x=15, y=310)
         res_label.place(x=15, y=350)
         vid_res.place(x=15, y=380)
     elif output_format.get() == "MP3":
         forget_all()
+        mp4rad1.place(x=15, y=280)
+        mp3rad2.place(x=15, y=310)
         aud_label.place(x=15, y=350)
         aud_qut.place(x=15, y=380)
     else:
@@ -154,92 +181,255 @@ def create_download_row(title,key='p'):
 
 def start_download():
     url_jobs = check_url_content()
-
-    if url_jobs:
-        def worker():
-            appdata = Path(os.getenv("LOCALAPPDATA")) / "DownloadBetaV"
-            appdata.mkdir(parents=True, exist_ok=True)
-            batch_folder = appdata / f"batch_{int(time.time()*1000)}"
-            batch_folder.mkdir()
-            try:
-                for url in url_jobs:
+    
+    if not url_jobs:
+        return
+    
+    def worker():
+        nonlocal url_jobs 
+        
+        temp_dirs: List[Path] = []
+        batch_folder: Optional[Path] = None
+        download_successful = False
+        failed_urls: List[Tuple[str, str]] = []  
+        
+        try:
+            if len(url_jobs) > 1:
+                try:
+                    appdata = Path(os.getenv("LOCALAPPDATA")) / "DownloadBetaV"
+                    appdata.mkdir(parents=True, exist_ok=True)
+                    batch_folder = appdata / f"batch_{int(time.time()*1000)}"
+                    batch_folder.mkdir()
+                    logger.info(f"Created batch folder: {batch_folder}")
+                except Exception as e:
+                    logger.error(f"Failed to create batch folder: {e}")
+                    window.after(0, lambda: messagebox.showerror(
+                        "Batch Folder Error",
+                        f"Could not create batch folder:\n{type(e).__name__}: {str(e)}"
+                    ))
+                    return
+            
+            # Process each URL independently
+            for idx, url in enumerate(url_jobs, 1):
+                try:
+                    logger.info(f"Processing URL {idx}/{len(url_jobs)}: {url}")
+                    # Step 1: Fetch thumbnail with error isolation
+                    thumb_path = None
+                    vid_title = None
+                    thum_temp_dir = None
+                    
                     try:
-                        thum_temp_dir=None
-                        thumb_path, vid_title,thum_temp_dir = fetch_thumbnail(url)
-                    except Exception as e:
-                        window.after(0, lambda: messagebox.showerror(
-                            "COULDNT LOAD THUMBNAIL",
-                            f"{type(e).__name__}:\n{str(e)}"
+                        thumb_path, vid_title, thum_temp_dir = fetch_thumbnail(url)
+                        if thum_temp_dir:
+                            temp_dirs.append(thum_temp_dir)
+                        logger.info(f"Successfully fetched thumbnail for: {vid_title}")
+                    except Exception as thumb_err:
+                        error_msg = f"{type(thumb_err).__name__}: {str(thumb_err)}"
+                        logger.warning(f"Thumbnail fetch failed for {url}: {error_msg}")
+                        failed_urls.append((url, f"Thumbnail: {error_msg}"))
+                        
+                        window.after(0, lambda msg=error_msg: messagebox.showwarning(
+                            "Thumbnail Loading Failed",
+                            f"Could not load thumbnail. Continuing with default.\n{msg}"
                         ))
-                        continue
-                    row_ready=threading.Event()
+                        
+                        # Use defaults and continue with this URL
+                        vid_title = f"Video_{idx}"
+                    
+                    # Step 2: Setup UI row with error recovery
+                    row_ready = threading.Event()
                     row_widgets = {}
+                    row_setup_failed = False
+                    
                     def setup_row():
+                        """Setup UI row for this download."""
+                        nonlocal row_setup_failed
                         try:
-                            thumb_label, row_progress_bar, row_status_label = create_download_row(vid_title,"pl")
-                            load_thumbnail_into_label(thumb_path, thumb_label)
+                            thumb_label, row_progress_bar, row_status_label = create_download_row(vid_title, "pl")
+                            
+                            # Only load thumbnail if we have a valid path
+                            if thumb_path:
+                                try:
+                                    load_thumbnail_into_label(thumb_path, thumb_label)
+                                except Exception as load_err:
+                                    logger.warning(f"Failed to load thumbnail into label: {load_err}")
+                                    # UI label stays with default image
+                            
                             row_widgets["progress"] = row_progress_bar
                             row_widgets["status"] = row_status_label
-                            row_ready.set()
-                        except Exception as e:
-                            messagebox.showerror("UI Error", str(e))
+                            logger.debug(f"Row setup successful for {vid_title}")
+                            
+                        except Exception as setup_err:
+                            row_setup_failed = True
+                            logger.error(f"Row setup failed: {setup_err}", exc_info=True)
+                            # Don't call messagebox here - it's already on main thread
+                            # and might cause deadlock if the main thread is blocked
                         finally:
-                            row_ready.set()
-
+                            row_ready.set()  # Always signal, even on failure
+                    
+                    # Execute UI setup on main thread
                     window.after(0, setup_row)
-                    row_ready.wait()
-
+                    row_ready.wait(timeout=5.0)  # Prevent indefinite hang
+                    
+                    if row_setup_failed:
+                        failed_urls.append((url, "UI row creation failed"))
+                        logger.warning(f"Skipping download due to UI failure: {url}")
+                        continue 
+                    
+                    # Step 3: Setup progress callbacks with safety checks
                     def row_progress(value):
-                        window.after(0, lambda: row_widgets["progress"].set(value))
-
+                        """Update progress bar safely."""
+                        try:
+                            if row_widgets and "progress" in row_widgets:
+                                window.after(0, lambda v=value: row_widgets["progress"].set(v))
+                        except Exception as e:
+                            logger.warning(f"Progress update failed: {e}")
+                    
                     def row_status(text):
-                        window.after(0, lambda: row_widgets["status"].configure(text=text))
-                    if len(url_jobs)==1:
+                        """Update status label safely."""
+                        try:
+                            if row_widgets and "status" in row_widgets:
+                                window.after(0, lambda t=text: row_widgets["status"].configure(text=t))
+                        except Exception as e:
+                            logger.warning(f"Status update failed: {e}")
+                    
+                    # Step 4: Download video with error handling
+                    try:
+                        output_path = batch_folder if len(url_jobs) > 1 else save_entry.get()
+                        
+                        logger.info(f"Starting download to: {output_path}")
                         download_youtube_video(
                             url,
                             res_var.get(),
                             aud_var.get(),
                             output_format.get().lower(),
-                            save_entry.get(),
+                            output_path,
                             progress_callback=row_progress,
                             status_callback=row_status
                         )
-                    else:
-                        download_youtube_video(
-                            url,
-                            res_var.get(),
-                            aud_var.get(),
-                            output_format.get().lower(),
-                            batch_folder,
-                            progress_callback=row_progress,
-                            status_callback=row_status
+                        logger.info(f"Successfully downloaded: {url}")
+                        download_successful = True
+                        
+                    except Exception as download_err:
+                        error_msg = str(download_err)
+                        logger.error(f"Download failed for {url}: {error_msg}", exc_info=True)
+                        failed_urls.append((url, str(download_err)))
+                        
+                        # Categorize error for user feedback
+                        if "429" in error_msg or "Too Many Requests" in error_msg:
+                            window.after(0, show_rate_limit_error)
+                        elif any(phrase in error_msg for phrase in ["Sign in", "bot", "cookie"]):
+                            window.after(0, show_cookie_error)
+                        else:
+                            window.after(0, lambda msg=f"{type(download_err).__name__}: {error_msg}": 
+                                messagebox.showerror("Download Error", msg))
+                        
+                        # Continue to next URL instead of failing completely
+                        continue
+                
+                # *** CRITICAL FIX: Catch ANY exception that escapes nested blocks ***
+                except Exception as url_err:
+                    logger.error(f"Unexpected error processing URL {idx} ({url}): {url_err}", exc_info=True)
+                    failed_urls.append((url, f"Critical: {str(url_err)}"))
+                    # This continue ensures we move to the next URL no matter what
+                    continue
+            
+            # Step 5: Post-download processing
+            try:
+                # Only zip if we have a batch and downloads succeeded
+                if len(url_jobs) > 1 and batch_folder and batch_folder.exists():
+                    if download_successful:
+                        try:
+                            logger.info("Creating batch zip file...")
+                            zip_downloaded_files(save_entry.get(), batch_folder)
+                            logger.info("Batch zip created successfully")
+                        except Exception as zip_err:
+                            logger.error(f"Zipping failed: {zip_err}")
+                            messagebox.showwarning(
+                                "Zip Error",
+                                f"Could not create zip file:\n{zip_err}\nFiles remain in batch folder."
+                            )
+                    
+                    # Clean up batch folder ONLY after zipping
+                    try:
+                        if batch_folder.exists():
+                            shutil.rmtree(batch_folder, ignore_errors=True)
+                            logger.info(f"Cleaned up batch folder: {batch_folder}")
+                    except Exception as cleanup_err:
+                        logger.error(f"Failed to remove batch folder: {cleanup_err}")
+                        messagebox.showwarning(
+                            "Cleanup Warning",
+                            f"Could not remove temporary folder:\n{batch_folder}"
                         )
-            except Exception as e:
-                error_text=str(e)
-                if "429" in error_text or "Too Many Requests" in error_text:
-                    show_rate_limit_error()
-                elif "Sign in" in error_text or "bot" in error_text or "cookie" in error_text:
-                    show_cookie_error()
+            
+            except Exception as post_err:
+                logger.error(f"Post-processing error: {post_err}", exc_info=True)
+            
+            # Step 6: Show summary to user
+            if failed_urls:
+                summary = "Some downloads had issues:\n\n"
+                for url, error in failed_urls:
+                    summary += f"• {url}\n  {error}\n\n"
+                
+                if download_successful:
+                    summary += "\n✓ Some downloads completed successfully."
+                    window.after(0, lambda s=summary: messagebox.showinfo("Download Summary", s))
                 else:
-                    window.after(0, lambda: messagebox.showerror(
-                            "Download Error",
-                            f"{type(e).__name__}:\n{str(e)}"
-                        ))
-            finally:
-                if len(url_jobs)>1:
-                    zip_downloaded_files(save_entry.get(),batch_folder)
-                if batch_folder.exists():
-                    shutil.rmtree(batch_folder, ignore_errors=True)
-                if thum_temp_dir and thum_temp_dir.exists():
-                    shutil.rmtree(thum_temp_dir, ignore_errors=True)
-                window.after(0, lambda: button_1.configure(state='normal'))
+                    summary = "All downloads failed:\n\n" + summary
+                    window.after(0, lambda s=summary: messagebox.showerror("Download Failed", s))
+            else:
                 window.after(0, lambda: messagebox.showinfo(
                     "Download Complete",
                     "✅ All downloads completed successfully!"
                 ))
-                window.after(2000,lambda: [w.destroy() for w in downloads_frame.winfo_children()])
+        
+        except Exception as critical_err:
+            # Final catch-all for truly unexpected errors
+            logger.critical(f"Critical error in download worker: {critical_err}", exc_info=True)
+            window.after(0, lambda: messagebox.showerror(
+                "Critical Error",
+                f"An unexpected error occurred:\n{type(critical_err).__name__}: {str(critical_err)}\n\nCheck logs for details."
+            ))
+        
+        finally:
+            # Cleanup: Always execute, regardless of success/failure
+            logger.info("Starting cleanup...")
+            
+            # Remove all temporary thumbnail directories
+            for temp_dir in temp_dirs:
+                try:
+                    if temp_dir.exists():
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        logger.debug(f"Cleaned up temp dir: {temp_dir}")
+                except Exception as cleanup_err:
+                    logger.warning(f"Failed to cleanup {temp_dir}: {cleanup_err}")
+            
+            # Ensure batch folder is removed (if it still exists)
+            if batch_folder and batch_folder.exists():
+                try:
+                    shutil.rmtree(batch_folder, ignore_errors=True)
+                    logger.debug(f"Force-cleaned batch folder: {batch_folder}")
+                except Exception as cleanup_err:
+                    logger.warning(f"Failed to force-cleanup batch folder: {cleanup_err}")
+            
+            # Clear UI and re-enable button
+            try:
+                # Delay clearing to ensure final messages are visible
+                window.after(3000, lambda: [w.destroy() for w in downloads_frame.winfo_children()])
+            except Exception as ui_err:
+                logger.warning(f"Failed to clear UI: {ui_err}")
+            
+            window.after(0, lambda: button_1.configure(state='normal'))
+            logger.info("Download worker completed")
+    
+    # Disable button and start worker thread
+    try:
         window.after(0, lambda: button_1.configure(state='disabled'))
         threading.Thread(target=worker, daemon=True).start()
+    except Exception as thread_err:
+        logger.error(f"Failed to start download thread: {thread_err}")
+        messagebox.showerror("Thread Error", f"Could not start download: {thread_err}")
+        window.after(0, lambda: button_1.configure(state='normal'))
         
 # Main Window
 window = ctk.CTk()
@@ -313,7 +503,7 @@ choice = ctk.CTkOptionMenu(
     fg_color="#D9D9D9",
     text_color="#000716",
     corner_radius=6,
-    values=['Youtube Files','Video Files'],
+    values=['Download Video/Reels/Shorts','Convert Mp4 to Mp3'],
     command=option_selected
 )
 choice.place(x=15, y=100)
@@ -396,12 +586,6 @@ save_label=ctk.CTkLabel(
     text_color="#1DFF83",
     font=ctk.CTkFont(size=12, weight="bold")
 )
-save_label_idk_what_number=ctk.CTkLabel(
-    sidebar,
-    text="Save Location:",
-    text_color="#1DFF83",
-    font=ctk.CTkFont(size=12, weight="bold")
-)
 upload_label=ctk.CTkLabel(
     sidebar,
     text="Upload File:",
@@ -424,14 +608,7 @@ save_entry2=ctk.CTkEntry(
     text_color="#000716",
     corner_radius=6
 )
-save_entry_idk=ctk.CTkEntry(
-    sidebar,
-    width=175,
-    height=32,
-    fg_color="#D9D9D9",
-    text_color="#000716",
-    corner_radius=6
-)
+
 upload_browse=ctk.CTkButton(
     sidebar,
     text="Browse",
