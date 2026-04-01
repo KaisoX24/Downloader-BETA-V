@@ -3,6 +3,8 @@ import os
 import ffmpeg
 import time
 from pathlib import Path
+import sys
+
 def fetch_thumbnail(url, temp_path="temp"):
     appdata = Path(os.getenv("LOCALAPPDATA")) / "DownloadBetaV"
     appdata.mkdir(parents=True,exist_ok=True)
@@ -28,8 +30,9 @@ def fetch_thumbnail(url, temp_path="temp"):
         if os.path.exists(thumb_path):
             return [thumb_path,vid_title,temp_path]
 
-    return None    
-    
+    return None 
+
+
 def progress_hook(d, progress_callback=None, status_callback=None, state=None):
     """Handles yt-dlp progress updates safely."""
     now = time.time()
@@ -77,11 +80,11 @@ def download_youtube_video(
 ):
     
     format_map = {
-        "Best": "bestvideo+bestaudio/best",
-        "480P": "bestvideo[height<=480]+bestaudio/best",
-        "720P": "bestvideo[height<=720]+bestaudio/best",
-        "1080P": "bestvideo[height<=1080]+bestaudio/best",
-    }
+    "Best": "bestvideo+bestaudio/best",
+    "480P": "bestvideo[height<=480]+bestaudio/best",
+    "720P": "bestvideo[height<=720]+bestaudio/best",
+    "1080P": "bestvideo[height<=1080]+bestaudio/best",
+}
 
     audio_map = {
         "128k": "128",
@@ -94,16 +97,46 @@ def download_youtube_video(
         "outtmpl": f"{output_path}/%(title).200s_%(id)s.%(ext)s",
         "restrictfilenames": True,
         "noplaylist": True,
-        "verbose":True,
     }
 
-    if file_type == "mp4":
+    if file_type == "mp4" and url.startswith("https://www.instagram.com/"):
         ydl_opts.update(
             {
                 "format": format_map[selected_res],
                 "merge_output_format": "mp4",
+                "postprocessors": [
+                    {
+                        "key": "FFmpegVideoConvertor",
+                        "preferedformat": "mp4",
+                    }
+                ],
+                "postprocessor_args": [
+                    "-c:v", "libx264",  
+                    "-c:a", "aac",       
+                    "-b:a", "192k",
+                    "-preset", "fast",   
+                ],
             }
         )
+
+    elif file_type == "mp4":
+        ydl_opts.update(
+            {
+                "format": format_map[selected_res],
+                "merge_output_format": "mp4",
+                "postprocessors": [
+                    {
+                        "key": "FFmpegVideoConvertor",
+                        "preferedformat": "mp4",
+                    }
+                ],
+                "postprocessor_args": [
+                    "-c:v", "copy",  
+                    "-c:a", "aac",       
+                    "-b:a", "192k",      
+                ],
+            }
+    )
 
     elif file_type == "mp3":
         ydl_opts.update(
@@ -115,6 +148,7 @@ def download_youtube_video(
                         "preferredcodec": "mp3",
                         "preferredquality": audio_map.get(audio_quality, "192"),
                     }
+
                 ],
             }
         )
@@ -149,6 +183,7 @@ def download_youtube_video(
         if status_callback:
             status_callback(f"Error: {str(e)}")
         return False
+    
 def convert_mp4_to_mp3(input_file,save_location):
     """
     Convert a video (.mp4) to mp3 audio using ffmpeg-python.
@@ -164,6 +199,6 @@ def convert_mp4_to_mp3(input_file,save_location):
     (
         ffmpeg
         .input(input_file)
-        .output(output_file, acodec="mp3",)
+        .output(output_file, acodec="mp3",audio_bitrate="192k")
         .run(overwrite_output=True)
     )
